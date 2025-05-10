@@ -2,7 +2,7 @@ using DifferentialEquations, Plots
 include("opt_inf_qui.jl")
 include("parameters.jl")
 
-function simulateGrowth(optParameters::Vector{Float64}; phi::Float64, simulationTime::Float64, withDormancy::Bool)
+function simulateGrowth(optParameters; phi::Float64, simulationTime::Float64, withDormancy::Bool=true)
     # Parameters
     beta = defaultBeta
 

@@ -17,6 +17,11 @@ simulationTime = 200.0       # total duration (days)
 # Cell concentrations
 initialCellCount = 47.3606         # starting number for active & quiescent cells (pmol/mL)
 
+#Used for time stamps
+Dilutions = 30
+defaultDT = 5.0 
+
+
 # Internal model constants used in ODEs
 modelParams = Dict(
     :uptakeAffinity => 2.67, #pmol*day/mL (Maybe should be mL/(pmol*day))
