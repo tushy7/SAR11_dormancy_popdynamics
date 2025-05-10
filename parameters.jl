@@ -19,7 +19,6 @@ initialCellCount = 47.3606         # starting number for active & quiescent cell
 
 #Used for time stamps
 Dilutions = 30
-defaultDT = 5.0 
 
 
 # Internal model constants used in ODEs
