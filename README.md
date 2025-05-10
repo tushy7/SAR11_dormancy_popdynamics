@@ -18,6 +18,8 @@ To run the simulations locally:
    Pkg.add("UnPack")
    Pkg.add("Plots")
    Pkg.add("DifferentialEquations")
+   Pkg.add("Optimization")
+   Pkg.add("OptimizationOptimJL")
 
   
 3. You must run `include("filename.jl")` to load functions from that file into your session.
@@ -37,3 +39,4 @@ To run the simulations locally:
 | `plotting.jl`     | Includes the `plotSolution` function to generate plots from the simulation results. It takes in the solution object (`sol`) and whether dormancy was used, and outputs a log-scaled population dynamics plot. |
 | `simFunctions.jl` | Contains the `simulateGrowth` function, which sets up and solves the ODE problem. It takes a `withDormancy` flag and returns the simulation result (`sol`) without plotting. |
 | `simulations.jl`  | The **main runner script**. It defines `regGrowthSim(eventType)` which calls `simulateGrowth` and then passes the result to `plotSolution`. |
+| `objectiveFun.jl` | Defines the **objective function**  which determines the optimal dormancy rate that maximizes active cell density for given virus adsorption rate (`phi`) and dilution interval (`dt`). |
