@@ -12,7 +12,7 @@ initialVirusLoad = 1.0727          # starting virus particles if virus is presen
 nutrientReset = 100000.0    # initial nutrient concentration
 
 # Simulation settings
-simulationTime = 20.0       # total duration (days)
+simulationTime = 200.0       # total duration (days)
 
 # Cell concentrations
 initialCellCount = 47.3606         # starting number for active & quiescent cells (pmol/mL)

@@ -2,12 +2,9 @@ using DifferentialEquations, Plots
 include("opt_inf_qui.jl")
 include("parameters.jl")
 
-function simulateGrowth(; withDormancy::Bool)
+function simulateGrowth(optParameters::Vector{Float64}; phi::Float64, simulationTime::Float64, withDormancy::Bool)
     # Parameters
-    optParameters = copy(defaultOptParameters)
-    phi = defaultPhi
     beta = defaultBeta
-    simulationTime = 200.0
 
     # Set dormancy rate manually
     dormancyRate = 0.0
