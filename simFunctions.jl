@@ -22,7 +22,7 @@ function simulateGrowth(optParameters; phi::Float64, simulationTime::Float64, wi
 
     # Solve
     prob = ODEProblem(opt_inf_qui_model!, initialState, tspan, params)
-    sol = solve(prob, Tsit5(); reltol=1e-6, abstol=1e-6)
+    sol = solve(prob, Rodas5(); reltol=1e-6, abstol=1e-6)
 
     # Extract results
     t = sol.t

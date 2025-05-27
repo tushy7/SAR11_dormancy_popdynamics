@@ -29,25 +29,34 @@ function optimizeDormancy(phi, dt)
     #[0.66, 0.1] = initial guess, lb = lower bounds for phi, dt, ub = upper bounds.
     #these can be messed with
 
-    sol = solve(prob, BFGS(); maxiters=100) #can start max iters lower for now if it’s slow
+    sol = solve(prob, BFGS(); maxiters=60) #can start max iters lower for now if it’s slow
 
     return sol.u[2]  #return optimal dormancy rate q
 end
 
 
-# #define range of interest for phi and dt, and loop through them
-# #these are your x and y axes in the heatmap
-# x = phi
-# y = dt
+#define range of interest for phi and dt, and loop through them
+#these are your x and y axes in the heatmap
+using CSV
+using DataFrames
 
-# phis = range(x, y, l)
-# dts = range(x, y, l)
 
-# result = zeros(length(phis), length(dts))
+function heatMap(phiRange::Tuple{Float64, Float64}, dtRange::Tuple{Float64, Float64}; outputFile::String="heatMapData.csv")
+    phis = range(phiRange[1], phiRange[2], length=8)
+    dts = range(dtRange[1], dtRange[2], length=14)
 
-# #loop through every possible combo of variables
-# for (i, phi) in enumerate(phis)
-#     for (j, dt) in enumerate(dts)
-#         result[i, j] = optimizeDormancy(phi, dt)
-#     end
-# end
+    # Create an empty DataFrame to store (phi, dt, optimal_q)
+    results = DataFrame(phi=Float64[], dt=Float64[], q=Float64[])
+
+    # loop through every combo of phi and dt
+    for phi in phis
+        for dt in dts
+            q_opt = optimizeDormancy(phi, dt)
+            push!(results, (phi, dt, q_opt))
+        end
+    end
+
+    # Write to CSV
+    CSV.write(outputFile, results)
+    println("Done")
+end
