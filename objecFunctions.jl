@@ -2,12 +2,11 @@ include("parameters.jl")
 include("simFunctions.jl")
 include("plotting.jl")
 
-#set up the objective function
 function objective(optParams, phi, dt)
 	#run simulateGrowth for each input parameters
    	sol = simulateGrowth(optParams; phi=phi, simulationTime=dt*Dilutions)
-	#save only active output
-    	active = sol[1, :] #or whatever the output actually is
+
+    	active = sol[1, :] #save only active output
 
     if active[end] > 0
         return active[end]
@@ -20,16 +19,16 @@ end
 #actual numerical optimization
 using Optimization, OptimizationOptimJL
 
-#optimize over [umax, q] for each phi and dt
+#optimize over [umax (max growth rate), q (quiescence rate)] for each phi and dt
 function optimizeDormancy(phi, dt)
 
-    obj = (p, _) -> objective(p, phi, dt)  # two-arg function
-    optf = OptimizationFunction(obj, Optimization.AutoForwardDiff())
-    prob = OptimizationProblem(optf, [0.66, 0.1]; lb=[0.1, 0.01], ub=[2.0, 3.0])
+    obj(p, _) = objective(p, phi, dt) # two-arg function, Julia requires "_" 
+    optf = OptimizationFunction(obj, Optimization.AutoForwardDiff()) #telling Optimizer what/how to optimize 
+    prob = OptimizationProblem(optf, [0.66, 0.1]; lb=[0.1, 0.01], ub=[2.0, 3.0]) #like writing down the intial question with initial guesses etc.
     #[0.66, 0.1] = initial guess, lb = lower bounds for phi, dt, ub = upper bounds.
     #these can be messed with
 
-    sol = solve(prob, LBFGS(); maxiters=60) #can start max iters lower for now if it’s slow
+    sol = solve(prob, LBFGS(); maxiters=100) #can start max iters lower for now if it’s slow
 
     return sol.u[2]  #return optimal dormancy rate q
 end
@@ -37,13 +36,11 @@ end
 
 #define range of interest for phi and dt, and loop through them
 #these are your x and y axes in the heatmap
-using CSV
-using DataFrames
-
+using CSV, DataFrames
 
 function heatMap(phiRange::Tuple{Float64, Float64}, dtRange::Tuple{Float64, Float64}; outputFile::String="heatMapData.csv")
-    phis = range(phiRange[1], phiRange[2], length=8)
-    dts = range(dtRange[1], dtRange[2], length=14)
+    phis = range(phiRange[1], phiRange[2], length=8) #section virus count range into 8 subsets
+    dts = range(dtRange[1], dtRange[2], length=14) #section time range into 14 subsets
 
     # create empty DataFrame to store (phi, dt, optimal_quiescence)
     results = DataFrame(phi=Float64[], dt=Float64[], q=Float64[])
