@@ -1,6 +1,6 @@
 include("parameters.jl")
 include("simFunctions.jl")
-include("plotting.jl")
+include("juliaPlotting.jl")
 
 function objective(optParams, phi, dt)
 	#run simulateGrowth for each input parameters
@@ -9,7 +9,7 @@ function objective(optParams, phi, dt)
     	active = sol[1, :] #save only active output
 
     if active[end] > 0
-        return active[end]
+        return 1/active[end]
     else
         return 1e10 #really big number = bad
     end
@@ -24,8 +24,8 @@ function optimizeDormancy(phi, dt)
 
     obj(p, _) = objective(p, phi, dt) # two-arg function, Julia requires "_" 
     optf = OptimizationFunction(obj, Optimization.AutoForwardDiff()) #telling Optimizer what/how to optimize 
-    prob = OptimizationProblem(optf, [0.66, 0.1]; lb=[0.1, 0.01], ub=[2.0, 3.0]) #like writing down the intial question with initial guesses etc.
-    #[0.66, 0.1] = initial guess, lb = lower bounds for phi, dt, ub = upper bounds.
+    prob = OptimizationProblem(optf, [0.66, 0.1]; lb=[0.1, 0.01], ub=[2.0, 1.0]) #like writing down the intial question with initial guesses etc.
+    #[0.66, 0.1] = initial guess for q, lb = lower bounds for umax and q, ub = upper bounds.
     #these can be messed with
 
     sol = solve(prob, LBFGS(); maxiters=100) #can start max iters lower for now if it’s slow

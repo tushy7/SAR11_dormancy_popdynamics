@@ -1,11 +1,7 @@
 using Plots
 
-function plotSolution(sol, withDormancy::Bool)
-    t = sol.t
-    A = sol[1, :]
-    Q = sol[2, :]
-    V = sol[4, :]
-    I = sol[5, :]
+function plotSolution(sol::NTuple{6, Vector{Float64}}, withDormancy::Bool)
+    A, Q, _, V, I, t = sol  # `_` ignores the nutrients 
 
     plot(t, A .+ Q .+ I,
          label="Total Cells", linewidth=2, yscale=:log10, ylim=(1e-10, 1e5),
@@ -19,3 +15,4 @@ function plotSolution(sol, withDormancy::Bool)
     ylabel!("Cell Density (pmol cellular C/mL)")
     display(plot!())
 end
+

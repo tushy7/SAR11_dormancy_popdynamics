@@ -1,6 +1,6 @@
 include("parameters.jl")
 include("simFunctions.jl")
-include("plotting.jl")
+include("juliaPlotting.jl")
 
 function regGrowthSim(eventType::Int)
     # Default parameters
