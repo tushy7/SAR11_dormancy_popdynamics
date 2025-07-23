@@ -1,15 +1,20 @@
+using Statistics
 include("parameters.jl")
 include("simFunctions.jl")
 include("juliaPlotting.jl")
 
 function objective(optParams, phi, dt)
 	#run simulateGrowth for each input parameters
-   	sol = simulateGrowth(optParams; phi=phi, simulationTime=dt*Dilutions)
+   	sol = simulateGrowth(optParams; phi=phi)
+    active = sol[1] #save only active output
 
-    	active = sol[1, :] #save only active output
-
-    if active[end] > 0
-        return 1/active[end]
+    # Calculate average over last 3 cycles 
+    timePerCycle = round(Int, dt / 0.1) + 1
+    endingCycles = 3 * timePerCycle
+    
+    if length(active) >= endingCycles && mean(active[end-endingCycles+1:end]) > 0
+        avgActive = mean(active[end-endingCycles+1:end])
+        return 1/avgActive
     else
         return 1e10 #really big number = bad
     end
@@ -28,7 +33,7 @@ function optimizeDormancy(phi, dt)
     #[0.66, 0.1] = initial guess for q, lb = lower bounds for umax and q, ub = upper bounds.
     #these can be messed with
 
-    sol = solve(prob, LBFGS(); maxiters=100) #can start max iters lower for now if it’s slow
+    sol = solve(prob, LBFGS(); maxiters=100, maxtime=500.0) #can start max iters lower for now if it’s slow
 
     return sol.u[2]  #return optimal dormancy rate q
 end

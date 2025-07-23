@@ -2,7 +2,7 @@ using DifferentialEquations, Plots
 include("opt_inf_qui.jl")
 include("parameters.jl")
 
-function simulateGrowth(optParameters; phi::Float64, simulationTime::Float64, withDormancy::Bool=true)
+function simulateGrowth(optParameters; phi::Float64, withDormancy::Bool=true)
     # Parameters
     beta = defaultBeta
 
@@ -22,15 +22,8 @@ function simulateGrowth(optParameters; phi::Float64, simulationTime::Float64, wi
 
     # Solve
     prob = ODEProblem(opt_inf_qui_model!, initialState, tspan, params)
-    sol = solve(prob, Rodas5(); reltol=1e-6, abstol=1e-6)
+    sol = solve(prob, Rodas5(); saveat=0:0.1:dt, reltol=1e-6, abstol=1e-6)
 
-    # Dilute results
-    newSol = dilute(sol, tspan, params)
-
-    return newSol
-end
-
-function dilute(sol::ODESolution, tspan, params)
     actDil = copy(sol[1, :])
     quiDil = copy(sol[2, :])
     nutDil = copy(sol[3, :])
@@ -47,7 +40,7 @@ function dilute(sol::ODESolution, tspan, params)
         end 
 
         prob = ODEProblem(opt_inf_qui_model!, dilState, tspan, params)
-        newSol = solve(prob, Rodas5(); reltol=1e-6, abstol=1e-6)
+        newSol = solve(prob, Rodas5(); saveat=0:0.1:dt, reltol=1e-6, abstol=1e-6, maxiters=1000)
 
         append!(actDil, newSol[1,:])
         append!(quiDil, newSol[2,:])
@@ -64,10 +57,11 @@ function dilute(sol::ODESolution, tspan, params)
     return (actDil, quiDil, nutDil, virDil, infDil, time)
 end
 
-function checkExtinct!(trajectory::Vector{Float64}, threshold::Float64)
-    i = findfirst(x -> x <= threshold, trajectory)
-    if !isnothing(i)
-        trajectory[i:end] .= 0.0
+function checkExtinct!(trajectory::AbstractVector, threshold::Real)
+    indices = findall(x -> x <= threshold, trajectory)
+    if !isempty(indices)
+        firstIdx = minimum(indices) 
+        trajectory[firstIdx:end] .= zero(eltype(trajectory))
     end
 end
 

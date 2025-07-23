@@ -11,16 +11,13 @@ initialVirusLoad = 1.0727          # starting virus particles if virus is presen
 # Nutrient settings 
 nutrientReset = 100000.0    # initial nutrient concentration
 
-# Simulation settings
-simulationTime = 200.0       # total duration (days)
+# Dilution Simulation settings
 Dilutions = 30
-dt = simulationTime / Dilutions
+dt = 5
+dilEffect = 0.25
 
 # Cell concentrations
 initialCellCount = 47.3606         # starting number for active & quiescent cells (pmol/mL)
-
-# Dilution Amount
-dilEffect = 0.2
 
 # Internal model constants used in ODEs
 modelParams = Dict(
