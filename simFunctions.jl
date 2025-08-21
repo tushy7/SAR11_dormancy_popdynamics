@@ -22,7 +22,7 @@ function simulateGrowth(optParameters; phi::Float64, withDormancy::Bool=true)
 
     # Solve
     prob = ODEProblem(opt_inf_qui_model!, initialState, tspan, params)
-    sol = solve(prob, Rodas5(); saveat=0:0.1:dt, reltol=1e-6, abstol=1e-6)
+    sol = solve(prob, Rodas5(); saveat=0:0.1:dt, reltol=1e-6, abstol=1e-6) #saveat creates equal time divides between 0 to dt 
 
     actDil = copy(sol[1, :])
     quiDil = copy(sol[2, :])
@@ -65,3 +65,30 @@ function checkExtinct!(trajectory::AbstractVector, threshold::Real)
     end
 end
 
+
+
+function scanDormancy(phi, dt; qRange=range(0.01, 10.0, length=100))
+    results = []
+    for q in qRange
+        optParams = [0.69, q]  # fixed max growth rate for now
+        sol = simulateGrowth(optParams; phi=phi, withDormancy=true)
+        active = sol[1]
+        timePerCycle = round(Int, dt / 0.1) + 1
+        endingCycles = 100 * timePerCycle
+        if length(active) >= endingCycles && mean(active[end-endingCycles+1:end]) > 0
+            avgActive = mean(active[end-endingCycles+1:end])
+        else
+            avgActive = 0.0  # or NaN
+        end
+        push!(results, (q, avgActive))
+    end
+    
+    q = [result[1] for result in results if result[1] <= 2.5]
+    avgActive = [result[2] for result in results if result[1] <= 2.5]
+
+    p = plot(q, avgActive, linestyle=:dash, linewidth=2, color=:red)
+    xlabel!("Quiescent Rate")
+    ylabel!("Average Active Cell")
+    title!("phi = $phi, dt = $dt")
+    display(p)
+end
