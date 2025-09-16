@@ -40,3 +40,7 @@ To run the simulations locally:
 | `simFunctions.jl` | Contains the `simulateGrowth` function, which sets up and solves the ODE problem. It takes a `withDormancy` flag and returns the simulation result (`sol`) without plotting. |
 | `simulations.jl`  | The **main runner script**. It defines `regGrowthSim(eventType)` which calls `simulateGrowth` and then passes the result to `plotSolution`. |
 | `objectiveFun.jl` | Defines the **objective function**  which determines the optimal dormancy rate that maximizes active cell density for given virus adsorption rate (`phi`) and dilution interval (`dt`). |
+| `optimizeDormancy.jl` | Updated version of objectiveFun.jl, no variation applied to max growth rate |
+| `main.jl` | Calls and runs optimizeDormancy.jl |
+
+
