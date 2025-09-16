@@ -2,60 +2,85 @@ using DifferentialEquations, Plots
 include("opt_inf_qui.jl")
 include("parameters.jl")
 
-function simulateGrowth(optParameters; phi::Float64, withDormancy::Bool=true)
-    # Parameters
+using OrdinaryDiffEq, DiffEqCallbacks
+
+function simulateGrowth(optParameters; phi::Float64,
+        withDormancy::Bool=true,
+        dilution_interval::Float64=default_dilution_interval,
+        total_time::Float64=default_total_time,
+        run_partial_last::Bool=true)
+
     beta = defaultBeta
-
-    # Set dormancy rate manually
-    dormancyRate = 0.0
-    if withDormancy
-        dormancyRate = optParameters[2]
-    end
-
-    # Initial state: [Active, Quiescent, Nutrients, Viruses, Infected Quiescent]
+    dormancyRate = withDormancy ? optParameters[2] : 0.0
     initialState = [initialCellCount, initialCellCount, nutrientReset, initialVirusLoad, 0.0]
-    tspan = (0.0, dt)
 
-    # Params: (optParameters, phi, beta, modelParams, dormancyFlag)
-    effectiveOptParams = [optParameters[1], dormancyRate]
-    params = (effectiveOptParams, phi, beta, modelParams, withDormancy)
+    num_full = floor(Int, total_time / dilution_interval)
+    rem_time = total_time - num_full * dilution_interval
 
-    # Solve
-    prob = ODEProblem(opt_inf_qui_model!, initialState, tspan, params)
-    sol = solve(prob, Rodas5(); saveat=0:0.1:dt, reltol=1e-6, abstol=1e-6) #saveat creates equal time divides between 0 to dt 
+    tspan  = (0.0, dilution_interval)
+    params = ([optParameters[1], dormancyRate], phi, beta, modelParams, withDormancy)
 
-    actDil = copy(sol[1, :])
-    quiDil = copy(sol[2, :])
-    nutDil = copy(sol[3, :])
-    virDil = copy(sol[4, :])
-    infDil = copy(sol[5, :])
-    time = copy(sol.t)
+    has_negative(u, t, integrator) = any(u .< 0.0)
 
-    for i in 1:(Dilutions - 1)
-        dilState = [actDil[end]*dilEffect, quiDil[end]*dilEffect, nutrientReset, 
-                    virDil[end]*dilEffect, infDil[end]*dilEffect]
-
-        if i > 2 && dilState[1] < 5.41e-4 
-            dilState[1] = 0
-        end 
-
-        prob = ODEProblem(opt_inf_qui_model!, dilState, tspan, params)
-        newSol = solve(prob, Rodas5(); saveat=0:0.1:dt, reltol=1e-6, abstol=1e-6, maxiters=1000)
-
-        append!(actDil, newSol[1,:])
-        append!(quiDil, newSol[2,:])
-        append!(nutDil, newSol[3,:])
-        append!(virDil, newSol[4,:])
-        append!(infDil, newSol[5,:])
-        append!(time, newSol.t .+ time[end])
-
-        checkExtinct!(actDil, 5.41e-4)
-        checkExtinct!(quiDil, 5.41e-4)
-        checkExtinct!(infDil, 5.41e-4)
+    # Positivity guard (prevents negative excursions blowing up other terms)
+    function clamp_negatives!(integrator)
+        u = integrator.u
+        @inbounds for i in eachindex(u)
+            if u[i] < 0.0
+                u[i] = 0.0
+            end
+        end
     end
+    cb = DiscreteCallback(has_negative, clamp_negatives!)
     
+    # Stiff algorithm + headroom + dt floor
+    alg  = KenCarp4()    # TRBDF2() also works well here
+    rtol = 1e-4
+    atol = 1e-8
+    mxi  = 2_000_000
+    dmin = 1e-12
+
+    save_step = min(0.1, dilution_interval/100)
+
+    # First cycle
+    prob = ODEProblem(opt_inf_qui_model!, initialState, tspan, params)
+    sol  = solve(prob, alg; saveat=0:save_step:dilution_interval,
+                 reltol=rtol, abstol=atol, maxiters=mxi, dtmin=dmin, callback=cb)
+
+    actDil = copy(sol[1,:]); quiDil = copy(sol[2,:]); nutDil = copy(sol[3,:])
+    virDil = copy(sol[4,:]); infDil = copy(sol[5,:]); time  = copy(sol.t)
+
+    # Full cycles
+    for i in 1:(num_full - 1)
+        dilState = [actDil[end]*dilEffect, quiDil[end]*dilEffect, nutrientReset,
+                    virDil[end]*dilEffect, infDil[end]*dilEffect]
+        if i > 2 && dilState[1] < extinctionThreshold; dilState[1] = 0; end
+
+        prob  = ODEProblem(opt_inf_qui_model!, dilState, tspan, params)
+        newSol = solve(prob, alg; saveat=0:save_step:dilution_interval,
+                       reltol=rtol, abstol=atol, maxiters=mxi, dtmin=dmin, callback=cb)
+
+        append!(actDil, newSol[1,:]); append!(quiDil, newSol[2,:]); append!(nutDil, newSol[3,:])
+        append!(virDil, newSol[4,:]); append!(infDil, newSol[5,:]); append!(time, newSol.t .+ time[end])
+
+        checkExtinct!(actDil, extinctionThreshold); checkExtinct!(quiDil, extinctionThreshold); checkExtinct!(infDil, extinctionThreshold)
+    end
+
+    # Partial last cycle (if any)
+    if run_partial_last && rem_time > 1e-9
+        dilState = [actDil[end]*dilEffect, quiDil[end]*dilEffect, nutrientReset,
+                    virDil[end]*dilEffect, infDil[end]*dilEffect]
+        prob_last = ODEProblem(opt_inf_qui_model!, dilState, (0.0, rem_time), params)
+        newSol = solve(prob_last, alg; saveat=0:save_step:rem_time,
+                       reltol=rtol, abstol=atol, maxiters=mxi, dtmin=dmin, callback=cb)
+
+        append!(actDil, newSol[1,:]); append!(quiDil, newSol[2,:]); append!(nutDil, newSol[3,:])
+        append!(virDil, newSol[4,:]); append!(infDil, newSol[5,:]); append!(time, newSol.t .+ time[end])
+    end
+
     return (actDil, quiDil, nutDil, virDil, infDil, time)
 end
+
 
 function checkExtinct!(trajectory::AbstractVector, threshold::Real)
     indices = findall(x -> x <= threshold, trajectory)

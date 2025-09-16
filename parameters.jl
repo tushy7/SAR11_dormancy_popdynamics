@@ -14,11 +14,13 @@ nutrientReset = 100000.0    # initial nutrient concentration
 # Dilution Simulation settings
 Range = 300
 dt = 5
-Dilutions = Range/dt
 dilEffect = 0.25
 
 # Cell concentrations
 initialCellCount = 47.3606         # starting number for active & quiescent cells (pmol/mL)
+
+extinctionThreshold = 5.41e-4  # cells (units: same as active/quiescent)
+
 
 # Internal model constants used in ODEs
 modelParams = Dict(
