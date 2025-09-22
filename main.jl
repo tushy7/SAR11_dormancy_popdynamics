@@ -1,5 +1,5 @@
-include("simFunctions.jl")
-include("optimizeDormancy.jl")
+include("growthSimulator.jl")
+include("oldObjecFunc.jl")
 
 phiRange = (1.0e-10, 1.0e-6)
 dtRange  = (0.25, 21.0)

@@ -1,7 +1,7 @@
 #timeSeriesPlot.jl
 using DifferentialEquations, Plots
 include("parameters.jl")
-include("simFunctions.jl")
+include("growthSimulator.jl")
 include("objecFunctions.jl")
 
 phi = 1.0e-7
