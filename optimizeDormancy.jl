@@ -1,27 +1,21 @@
 using Statistics
-using Optim: optimize, Brent, Options
+import Optim
 using DataFrames
 
-const EPS = 1e-9
+const EPS = 1e-9 #to avoid div by zero
 
-"""
-    objective(dormancy; phi, dt, growth, simfn=simulateGrowth,
-              total_days=500.0, eval_window=300.0)
-
-- `growth` is known max growth (optParameters[1])
-- `dormancy` is optParameters[2]
-- `phi` forwards to model
-- `dt` is  `dilution_interval`
-"""
 function objective(dormancy; phi::Float64, dt::Float64, growth::Float64,
-                   simfn=simulateGrowth, total_days::Float64=500.0, eval_window::Float64=300.0)
-    active, _, _, _, _, time =
+                   simfn=simulateGrowth, total_days::Float64=1000.0, eval_window::Float64=300.0,
+                   dilute_dormant::Bool=true, dilution_effect::Float64=dilEffect)
+    active, _, _, _, _, _, time =
         simfn([growth, dormancy];
               phi=phi,
               withDormancy=true,
               dilution_interval=dt,
               total_time=total_days,
-              run_partial_last=true)
+              run_partial_last=true,
+              dilute_dormant=dilute_dormant,
+              dilEffect=dilution_effect)
 
     t_end = time[end]
     keep = time .>= (t_end - eval_window)
@@ -35,9 +29,32 @@ function objective(dormancy; phi::Float64, dt::Float64, growth::Float64,
     return (isfinite(m) && m > 0) ? (1.0 / (m + EPS)) : Inf
 end
 
-"""
-adding in an intermediary between Brent and the fallback grid, where it tries to bracket around the minimum
-"""
+function _tail_mean_active_menace(phi::Float64, dt::Float64, q::Float64;
+    growth::Float64,
+    total_days::Float64=1000.0,
+    eval_window::Float64=300.0,
+    dilute_dormant::Bool=true,
+    dilution_effect::Float64=dilEffect,
+    simfn=simulateGrowth,
+)
+    A, _, _, _, _, M, t =
+        simfn([growth, q];
+              phi=phi,
+              withDormancy=true,
+              dilution_interval=dt,
+              total_time=total_days,
+              run_partial_last=true,
+              dilute_dormant=dilute_dormant,
+              dilEffect=dilution_effect)
+
+    t_end = t[end]
+    keep  = t .>= (t_end - eval_window)
+    A_keep = filter(isfinite, collect(@view A[keep]))
+    M_keep = filter(isfinite, collect(@view M[keep]))
+    mA = isempty(A_keep) ? NaN : mean(A_keep)
+    mM = isempty(M_keep) ? NaN : mean(M_keep)
+    return mA, mM
+end
 
 function bracketMinimum(f, lo, hi; n::Int=25)
     xs = collect(range(lo, hi; length=n))
@@ -45,7 +62,7 @@ function bracketMinimum(f, lo, hi; n::Int=25)
     k  = findmin(ys)[2]
     a  = (k == 1)            ? xs[1]       : xs[k-1]
     b  = (k == length(xs))   ? xs[end]     : xs[k+1]
-    δ  = 1e-9*(hi - lo)                      #nudge to avoid equal endpoints
+    δ  = 1e-9*(hi - lo)
     a, b = max(lo, a + δ), min(hi, b - δ)
     return a, b, xs, ys, k
 end
@@ -57,76 +74,86 @@ function bracketBrent(f, lo, hi; n::Int=25, reltol=1e-3, abstol=1e-6, maxiters=2
     return res, xs, ys, k
 end
 
-"""
-    optimizeDormancy(phi, dt; growth, bounds=(0.0,1.0),
-                     total_days=500.0, eval_window=300.0,
-                     reltol=1e-3, abstol=1e-6, maxiters=200)
-"""
-
 function optimizeDormancy(phi::Float64, dt::Float64;
     growth::Float64,
     bounds::Tuple{<:Real,<:Real}=(0.0, 3.0),
-    total_days::Float64=500.0,
+    total_days::Float64=1000.0,
     eval_window::Float64=300.0,
     reltol::Real=1e-3,
     abstol::Real=1e-6,
     maxiters::Int=200,
-)
+    dilute_dormant::Bool=true,
+    dilution_effect::Float64=dilEffect)
+
     lo, hi = float(bounds[1]), float(bounds[2])
+    hi = min(hi, growth)  #dormancy can’t exceed growth
 
     f(d) = objective(d; phi=phi, dt=dt, growth=growth,
-                        total_days=total_days, eval_window=eval_window)
+                     total_days=total_days, eval_window=eval_window,
+                     dilute_dormant=dilute_dormant,
+                     dilution_effect=dilution_effect)
 
-    result = optimize(f, lo, hi, Brent();
-        rel_tol=reltol, abs_tol=abstol, iterations=maxiters,
-        show_trace=false, store_trace=false)
-  
-    dopt = Optim.minimizer(result)
-    fmin = Optim.minimum(result)
-  
-    if !Optim.converged(result) || !isfinite(fmin)
-        #bracket brent
-        res2, xs, ys, k = bracketBrent(f, lo, hi; n=31,
-                                              reltol=reltol, abstol=abstol, maxiters=maxiters)
-        if Optim.converged(res2) && isfinite(Optim.minimum(res2))
-            return (Optim.minimizer(res2), Optim.minimum(res2),
-                    (; method="Brent(bracketed)", converged=true,
-                       iterations=Optim.iterations(res2)))
-        end
-    
-        #final safety: adaptive grid (coarse → zoom around best cell)
-        a = (k == 1) ? xs[1] : xs[k-1]
-        b = (k == length(xs)) ? xs[end] : xs[k+1]
-        fine = collect(range(a, b; length=25))
-        v2   = map(f, fine)
-        j    = findmin(v2)[2]
-        return (fine[j], v2[j],
-                (; method="adaptive_grid", converged=isfinite(v2[j]),
-                   iterations=length(xs) + length(fine)))
+    f_lo = f(lo)
+    f_hi = f(hi)
+
+    resB, xs, ys, k = bracketBrent(f, lo, hi; n=31,
+                                   reltol=reltol, abstol=abstol, maxiters=maxiters)
+
+    use_brent = Optim.converged(resB) && isfinite(Optim.minimum(resB))
+    if use_brent
+        qB   = Optim.minimizer(resB)
+        fB   = Optim.minimum(resB)
+
+        tol = max(reltol * abs(fB), abstol)
+        qbest, fbest, chosen = qB, fB, "Brent(bracketed)"
+
+        return (qbest, fbest, (; method=chosen, converged=true,
+                               iterations=Optim.iterations(resB)))
     end
-    
-    return (dopt, fmin, (; method="Brent", converged=true, iterations=Optim.iterations(result)))
+
+    ncoarse = 61
+    coarse  = collect(range(lo, hi; length=ncoarse))  # includes endpoints
+    vC      = map(f, coarse)
+    for i in eachindex(vC); if !isfinite(vC[i]); vC[i] = 1e12; end; end
+    jC      = argmin(vC)
+
+    a = (jC == 1)            ? coarse[1]      : coarse[jC-1]
+    b = (jC == length(coarse)) ? coarse[end]   : coarse[jC+1]
+
+    nfine = 21
+    fine  = collect(range(a, b; length=nfine))
+    vF    = map(f, fine)
+    for i in eachindex(vF); if !isfinite(vF[i]); vF[i] = 1e12; end; end
+    jF    = argmin(vF)
+    qG    = fine[jF]
+    fG    = vF[jF]
+
+    tolG = max(reltol * abs(fG), abstol)
+    qbest, fbest, chosen = qG, fG, "grid_adaptive"
+
+
+    return (qbest, fbest, (; method=chosen, converged=isfinite(fbest),
+                           iterations=ncoarse + nfine))
 end
 
-"""
-    heatMap(phiRange::Tuple, dtRange::Tuple; nphi=21, ndt=21, growth,
-            bounds=(0.0,1.0), total_days=500.0, eval_window=300.0,
-            threaded=true, reltol=1e-3, abstol=1e-6, maxiters=200)
-"""
+#classic heatmap
 function heatMap(phiRange::Tuple, dtRange::Tuple;
     nphi::Int=21, ndt::Int=21,
     growth::Float64,
     bounds::Tuple{<:Real,<:Real}=(0.0,5.0),
-    total_days::Float64=500.0, eval_window::Float64=300.0,
+    total_days::Float64=1000.0, eval_window::Float64=300.0,
     threaded::Bool=true,
     reltol::Real=1e-3, abstol::Real=1e-6, maxiters::Int=200,
+    dilute_dormant::Bool=false, dilution_effect::Float64=dilEffect
 )
     phis = exp10.(range(log10(float(phiRange[1])), log10(float(phiRange[2])); length=nphi))
     dts  = collect(range(float(dtRange[1]),  float(dtRange[2]);  length=ndt))
 
-    results = DataFrame(phi=Float64[], dt=Float64[], q=Float64[], loss=Float64[])
+# results with two extra columns
+    results = DataFrame(phi=Float64[], dt=Float64[], q=Float64[], loss=Float64[],
+                        avg_active=Float64[], avg_menace=Float64[])
 
-    lock = ReentrantLock()
+    lk = ReentrantLock()
 
     if threaded && Threads.nthreads() > 1
         Threads.@threads for i in 1:nphi
@@ -134,9 +161,14 @@ function heatMap(phiRange::Tuple, dtRange::Tuple;
                 dopt, fmin, _ = optimizeDormancy(phis[i], dts[j];
                     growth=growth, bounds=bounds,
                     total_days=total_days, eval_window=eval_window,
-                    reltol=reltol, abstol=abstol, maxiters=maxiters)
-                lock(lock) do
-                    push!(results, (phis[i], dts[j], dopt, fmin))
+                    reltol=reltol, abstol=abstol, maxiters=maxiters,
+                    dilute_dormant=dilute_dormant,
+                    dilution_effect=dilution_effect)
+                mA, mM = _tail_mean_active_menace(phis[i], dts[j], dopt;
+                    growth=growth, total_days=total_days, eval_window=eval_window,
+                    dilute_dormant=dilute_dormant, dilution_effect=dilution_effect)
+                Base.lock(lk) do
+                    push!(results, (phis[i], dts[j], dopt, fmin, mA, mM))
                 end
             end
         end
@@ -145,8 +177,13 @@ function heatMap(phiRange::Tuple, dtRange::Tuple;
             dopt, fmin, _ = optimizeDormancy(phis[i], dts[j];
                 growth=growth, bounds=bounds,
                 total_days=total_days, eval_window=eval_window,
-                reltol=reltol, abstol=abstol, maxiters=maxiters)
-            push!(results, (phis[i], dts[j], dopt, fmin))
+                reltol=reltol, abstol=abstol, maxiters=maxiters,
+                dilute_dormant=dilute_dormant,
+                dilution_effect=dilution_effect)
+            mA, mM = _tail_mean_active_menace(phis[i], dts[j], dopt;
+                growth=growth, total_days=total_days, eval_window=eval_window,
+                dilute_dormant=dilute_dormant, dilution_effect=dilution_effect)
+            push!(results, (phis[i], dts[j], dopt, fmin, mA, mM))
         end
     end
 
@@ -156,21 +193,20 @@ end
 
 using DataFrames
 
-"""
-    heatMapTracked(phiRange, dtRange; ...) -> (df, summary)
-"""
+#track type of solver used
 function heatMapTracked(phiRange::Tuple, dtRange::Tuple;
     nphi::Int=21, ndt::Int=21,
     growth::Float64,
     bounds::Tuple{<:Real,<:Real}=(0.0,5.0),
-    total_days::Float64=500.0, eval_window::Float64=300.0,
+    total_days::Float64=1000.0, eval_window::Float64=300.0,
     threaded::Bool=true, reltol::Real=1e-3, abstol::Real=1e-6, maxiters::Int=200,
+    dilute_dormant::Bool=false, dilution_effect::Float64=dilEffect
 )
     phis = exp10.(range(log10(float(phiRange[1])), log10(float(phiRange[2])); length=nphi))
     dts  = collect(range(float(dtRange[1]),  float(dtRange[2]);  length=ndt))
 
     results = DataFrame(phi=Float64[], dt=Float64[], q=Float64[], loss=Float64[],
-    method=String[], iters=Int[])
+        method=String[], iters=Int[], avg_active=Float64[], avg_menace=Float64[])
 
     mylock = ReentrantLock()
 
@@ -178,9 +214,14 @@ function heatMapTracked(phiRange::Tuple, dtRange::Tuple;
         dopt, fmin, st = optimizeDormancy(phis[i], dts[j];
             growth=growth, bounds=bounds,
             total_days=total_days, eval_window=eval_window,
-            reltol=reltol, abstol=abstol, maxiters=maxiters)
+            reltol=reltol, abstol=abstol, maxiters=maxiters,
+            dilute_dormant=dilute_dormant,
+            dilution_effect=dilution_effect)
+        mA, mM = _tail_mean_active_menace(phis[i], dts[j], dopt;
+            growth=growth, total_days=total_days, eval_window=eval_window,
+            dilute_dormant=dilute_dormant, dilution_effect=dilution_effect)
         lock(mylock) do
-            push!(results, (phis[i], dts[j], dopt, fmin, String(st.method), Int(st.iterations)))
+            push!(results, (phis[i], dts[j], dopt, fmin, String(st.method), Int(st.iterations), mA, mM))
         end
     end
 
@@ -198,4 +239,60 @@ function heatMapTracked(phiRange::Tuple, dtRange::Tuple;
 
     summary = combine(groupby(results, :method), nrow => :count)
     return results, summary
+end
+
+#for dt / dileffect variation
+function heatMapDilution(dtRange::Tuple;
+    neff::Int=11, ndt::Int=12,
+    phi::Float64,
+    growth::Float64,
+    effRange::Tuple{<:Real,<:Real}=(0.20, 1.00),
+    bounds::Tuple{<:Real,<:Real}=(0.0, 3.0),
+    total_days::Float64=1000.0,
+    eval_window::Float64=300.0,
+    threaded::Bool=true,
+    reltol::Real=1e-3, abstol::Real=1e-6, maxiters::Int=200,
+    dilute_dormant::Bool=false)
+
+    effs = collect(range(float(effRange[1]), float(effRange[2]); length=neff))
+    dts  = collect(range(float(dtRange[1]),  float(dtRange[2]);  length=ndt))
+
+    bins = [Vector{NTuple{4,Float64}}() for _ in 1:Threads.nthreads()]
+
+    work(e, d, tid) = begin
+        dopt, fmin, _ = optimizeDormancy(phi, d;
+            growth=growth, bounds=bounds,
+            total_days=total_days, eval_window=eval_window,
+            reltol=reltol, abstol=abstol, maxiters=maxiters,
+            dilute_dormant=dilute_dormant,
+            dilution_effect=e)
+        push!(bins[tid], (e, d, dopt, fmin))
+    end
+    if threaded && Threads.nthreads() > 1
+        Threads.@threads for i in 1:neff
+            tid = Threads.threadid()
+            for j in 1:ndt
+                work(effs[i], dts[j], tid)
+            end
+        end
+    else
+        for i in 1:neff, j in 1:ndt
+            work(effs[i], dts[j], 1)
+        end
+    end
+
+    flat = reduce(vcat, bins)
+    mAs = Float64[]; mMs = Float64[]
+    for (e, d, dopt, _) in flat
+        mA, mM = _tail_mean_active_menace(phi, d, dopt;
+            growth=growth, total_days=total_days, eval_window=eval_window,
+            dilute_dormant=dilute_dormant, dilution_effect=e)
+        push!(mAs, mA); push!(mMs, mM)
+    end
+    return DataFrame(dilEffect = getindex.(flat, 1),
+                     dt        = getindex.(flat, 2),
+                     q         = getindex.(flat, 3),
+                     loss      = getindex.(flat, 4),
+                     avg_active = mAs,
+                     avg_menace = mMs)
 end

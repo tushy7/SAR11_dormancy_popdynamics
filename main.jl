@@ -1,11 +1,14 @@
-include("growthSimulator.jl")
-include("oldObjecFunc.jl")
+include("simFunctions.jl")
+include("optimizeDormancy.jl")
 
 phiRange = (1.0e-10, 1.0e-6)
 dtRange  = (0.25, 21.0)
-growth   = 0.69
+umax   = 0.69
 
-results = heatMap(phiRange, dtRange; nphi=10, ndt=8, growth=growth)
+results = heatMap(phiRange, dtRange;
+                  nphi=2, ndt=2, growth=umax,
+                  dilute_dormant=false,
+                  dilution_effect=dilEffect)
 
 using CSV
 CSV.write("heatmap_results.csv", results)
@@ -15,9 +18,16 @@ CSV.write("heatmap_results.csv", results)
 
 
 df, summary = heatMapTracked((1e-10, 1e-6), (0.25, 21.0);
-                             nphi=9, ndt=9, growth=0.69)
+                             nphi=9, ndt=9, growth=umax, dilute_dormant = true, dilution_effect=dilEffect)
 
 @show summary
+
+using Plots
+# pick one that used the adaptive grid (or any specific cell)
+row = first(filter(:method => ==("Brent"), df))
+plt, info = visualize_optimization(row.phi, row.dt; growth=growth, bounds=(0.0, umax))
+display(plt)
+@show info
 
 # counts by method
 combine(groupby(df, :method), nrow => :count)
@@ -52,3 +62,55 @@ mact = [tail_mean(q) for q in qs]
 for (q, L, m) in zip(qs[1:10:end], loss[1:10:end], mact[1:10:end])
     @info "q=$(round(q, digits=2))" loss=L mean_tail=m
 end
+
+scanDormancyFromCSV("heatmap_results.csv", 3, 4)
+
+
+
+
+include("simFunctions.jl")
+include("optimizeDormancy.jl")
+
+phi     = 0.0
+umax    = 0.69
+dtRange = (0.5, 21.0)
+
+df_qstar = heatMapDilution(dtRange;
+    neff=8, ndt=8,
+    phi=phi, growth=umax,
+    effRange=(0.0, 0.40),
+    dilute_dormant=false)   # false = dilute ACTIVE only
+
+using CSV
+CSV.write("qstar_dilution_map_$(phi).csv", df_qstar)
+
+
+
+dtRange = (0.25, 21.0)
+ndt     = 8
+
+# φ×Δt map
+df_phi_dt = heatMap((1e-10, 1e-7), dtRange;
+    nphi=2, ndt=ndt, growth=umax,
+    dilute_dormant=false,           # or true — but the same in both calls
+    dilution_effect=0.25,
+    total_days=1000.0, eval_window=300.0)
+
+# Dilution map (single ϕ row)
+df_dil = heatMapDilution(dtRange;
+    neff=1, ndt=ndt,
+    phi=1e-9, growth=umax,
+    effRange=(0.25, 0.25),          # just the 0.25 row
+    dilute_dormant=false,           # same as above
+    total_days=1000.0, eval_window=300.0)
+
+using DataFrames, Statistics
+
+left  = sort(filter(:phi => ==(1e-7), df_phi_dt), :dt)[:, [:dt, :q]]
+right = sort(filter(:dilEffect => ==(0.25), df_dil), :dt)[:, [:dt, :q]]
+cmp   = innerjoin(left, right; on=:dt, makeunique=true)
+rename!(cmp, [:dt, :q_phi_dt, :q_dil025])
+cmp.diff = cmp.q_phi_dt .- cmp.q_dil025
+println(cmp)
+@show maximum(abs, cmp.diff)
+    

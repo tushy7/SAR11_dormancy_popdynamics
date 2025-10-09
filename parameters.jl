@@ -9,7 +9,7 @@ defaultBeta = 10.0                 # virus burst size (mL/day)
 initialVirusLoad = 1.0727          # starting virus particles if virus is present (mL/day)
 
 # Nutrient settings 
-nutrientReset = 100000.0    # initial nutrient concentration
+nutrientReset = 10000.0    # initial nutrient concentration
 
 # Dilution Simulation settings
 Range = 300
@@ -18,6 +18,8 @@ dilEffect = 0.25
 
 # Cell concentrations
 initialCellCount = 47.3606         # starting number for active & quiescent cells (pmol/mL)
+initialCompetitorCount = initialCellCount   # starting number for competitor cells (pmol/mL)
+includeCompetitors = true                   # optional toggle
 
 extinctionThreshold = 5.41e-4  # cells (units: same as active/quiescent)
 
@@ -25,11 +27,11 @@ extinctionThreshold = 5.41e-4  # cells (units: same as active/quiescent)
 # Internal model constants used in ODEs
 modelParams = Dict(
     :uptakeAffinity => 2.67, #pmol*day/mL (Maybe should be mL/(pmol*day))
-    :resuscitationRate => 0.2, # 1/day
+    :resuscitationRate => 0.1, # 1/day
     :outflowRate => 0.0, # 1/day
-    :activeMortalityRate => 0.04, # 1/day
+    :activeMortalityRate => 0.2, # 1/day
     :quiescentMortalityRate => 0.02, # 1/day
-    :yieldCoefficient => 0.6, # not sure about units yet? 
+    :yieldCoefficient => 0.6, # not sure yet? 
     :nutrientInflowRate => 5.0, # 1/day
     :virusMortalityRate => 0.2, # 1/day
     :phiCell => 1 / 5.41e-3, # mL/day
